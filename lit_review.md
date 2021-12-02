@@ -65,6 +65,7 @@ From Mc2000 (Faithfulness and Prosodic Circumscription)
 ---
 **Takeaway**: The main argument is that the broken plural is in fact regular. As the stem undergoes a regular transformation that can be predicted within OT. This is opposed to the root-stem approach that was proposed by Hammond 1988. While this project is not carried within OT, those findings are useful nonetheless. The prosodic template can be used as an additional feature contingent upon extracting it correctly (mainly glide vs long vowel).
 Additionally, I want to know how much of this is attested in ATB123, this is important because I've seen plural forms that are rarely used and other forms are preferred (e.g. the "correct" or predicted plural for jaziira is jazaa2ir, but it is almost never produce, instead the form juzur is the one used. There are is more to this discussion ... )
+Mc&Pr focused on tri consonantal nominals as they argue bi and quad take a limited number of plurals.
 
 ---
 
@@ -72,7 +73,15 @@ Additionally, I want to know how much of this is attested in ATB123, this is imp
 
 ### Dawdy-Hesterberg & Pierrehumbert 2015 (Learnability and generalisation of Arabic broken plural nouns)
 
-Dh&Ph carried computational analysis of the noun plural in Arabic from a given corpus. They build their work using the prosodic patterns introduced by Mc&Pr, which are basically CV tempalates. They also use segmental features () and gang size (basically the frequency of the ICs in terms of CV templates.) They use generalised context model (GCM), quoting Dh&Ph on GCM:
+Dh&Ph carried computational analysis of the noun plural in Arabic from a given corpus. They build their work using the prosodic patterns introduced by Mc&Pr, which are basically CV tempalates. They also use segmental features () and gang size (basically the frequency of the ICs in terms of CV templates.) They use generalized context model (GCM), quoting Dh&Ph on GCM:
 >The GCM is conceptually similar to a k-nearestneighbours model, with two major differences: k is variable depending on gang size, and similarity to a form is modulated by similarity to all other forms. Unlike other methods such as connectionist networks, wherein hidden units and subsymbolic representations do not correspond to a specific form or process (Green, 1999; Smolensky, 1988), the GCM is highly interpretable. It is trivial to examine the mechanisms of the model by examining similarity outputs.
 
-They were successful in predicting the broken plural within the group of broken plurals, however, they were still lagging behind on predicting which type of plural a single noun takes.
+GCMs are basically an exmplar model, quoting Nosofsky 2011:
+>According to the generalized context model (GCM) (Nosofsky, 1986), people represent categories by storing individual exemplars (or examples) in memory, and classify objects based on their similarity to these stored exemplars. For example, the model assumes that people represent the category of ‘birds’ by storing in memory the vast collection of different sparrows, robins, eagles, ostriches (and so forth) that they have experienced. If an object is sufficiently similar to some of these bird exemplars, then the person would tend to classify the object as a ‘bird’. This exemplar view of categorization contrasts dramatically with major alternative approaches that assume that people form abstract summary representations of categories, such as rules or idealized prototypes.
+
+Dh&Ph were successful in predicting the broken plural within the group of broken plurals, however, they were still lagging behind on predicting which type of plural a single noun takes.
+
+---
+**Takeaway**:  Although they adopt the general connectionist approach on analogical matching to get to the plural, they didn't use a connectionist network, instead they used a more transparent model (GCM). Using the different features is nice and they were able to measure the importance of each one (CV template proved to me the most important). Additionally their results supports the finding of Mc&Pr. Some of the downsides include not using a diacritized corpus, so the templates or the gangs won't be accurate. Additionally, treating long vowels and glides as the same thing could be problematic. One other interesting finding was the ratio of broken-to-sound which didn't match that of Mc&Pr or previous efforts (Kuhlani & Habash). I need to get to the bottom of this.
+
+---
