@@ -69,3 +69,20 @@ Test:\
 - there are lemmas thata has more than one plural (+1 broken or broken and sound)
 
 lemma -- plural -- B/S -- gender -- rat -- root -- lemma_patt -- plural_patt -- lemma_cv -- plural_cv
+
+Data:
+  - PATB123 train
+  - Augmented with features from CALIMA* analyzer
+  - frequency cutoff (top 1000)
+input:
+  - an array of things:
+    lemma (aka singular form) -- lemma_CV_template -- melodic_pattern -- tamar-- gender -- rat -- root
+  - label: plural class (B or S)
+  - label: plural pattern including both sound and broken
+Algorithm:
+   - J48 decision tree from Weka (scikit-learn is lame and does not take nominal features. I'll have to encode one hot vector for each feature and honestly: aint nobody got time for that.)
+  - Use the default parameters.
+  - The goal is to see the decision paths.
+Runs:
+  - On full data (excluding words with freq < 2)
+  - On top 1,000 lemmas.
