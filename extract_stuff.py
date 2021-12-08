@@ -1,12 +1,15 @@
 import re
 import sys
 import pandas as pd
-from collections import Counter
+from collections import Counter, OrderedDict
+
 from camel_tools.utils.charmap import CharMapper
+from camel_tools.morphology.generator import Generator
 from camel_tools.morphology.database import MorphologyDB
 
 bw2ar = CharMapper.builtin_mapper('bw2ar')
 ar2bw = CharMapper.builtin_mapper('ar2bw')
+bw2safebw = CharMapper.builtin_mapper('bw2safebw')
 
 _REMOVE_CLTCS = re.compile(r'(\S+\+\_|\_\+\S+)')
 _REMOVE_FNL_DCRTC = re.compile(r'([iouaFKN]|AF)$')
@@ -16,7 +19,30 @@ _ECN_STR = re.compile(r'(\_\+\S+)+')
 _UNDRSCR_PLS = re.compile(r'[\+\_]')
 _SUKUN = re.compile(r'o')
 
-def _trim_corpus(file_path, threshold):
+_SH_VOWELS = re.compile(r'[aiu]')
+_CONS_GLD = re.compile(r'[^aiu]')
+
+_CV_AT_END = re.compile(r'At$')
+_CV_IY_IYN_END = re.compile(r'(iy$|iyn$)')
+_CV_UW_UWN_END = re.compile(r'(uw$|uwn$)')
+_CV_DIGIT = re.compile(r'\d')
+_CV_AHMZ_END = re.compile(r"A'$")
+_CV_AN_END = re.compile(r"An$")
+_CV_U_MID = re.compile(r"CuwC")
+_CV_I_MID = re.compile(r"CiyC")
+_CV_A_MID = re.compile(r"CAC")
+_CV_ALIF_MDD = re.compile(r"\|")
+_CV_HMZA = re.compile(r"[><&}']")
+_CV_ALIF_INIT = re.compile(r"(^A|^{)")
+_CV_GLD_ALIF = re.compile(r"(aw|iy)A")
+_CV_TAMAR = re.compile(r"ap")
+_CV_A_END = re.compile(r"(aY|A$)")
+_CV_I_END = re.compile(r"(Ciy$)")
+_CV_U_END = re.compile(r"(Cuw$)")
+_CV_ALIF_MQ = re.compile(r"(A|Y)")
+
+
+def _trim_corpus(file_path, cutoff):
     words = []
     lemmas = []
     with open(file_path, 'r') as f:
@@ -28,13 +54,15 @@ def _trim_corpus(file_path, threshold):
             lemmas.append(features['lex'])
             words.append(features['diac'])
     word_counts = Counter(words)
-    word_counts = Counter({k: c for k, c in word_counts.items() if c > threshold})
     lemma_counts = Counter(lemmas)
-    lemma_counts = Counter({k: c for k, c in lemma_counts.items() if c > threshold})
+    if cutoff != 'all':
+        top_n_nouns = list(word_counts.keys())[0:int(cutoff)]
+        top_n_lemmas = list(lemma_counts.keys())[0:int(cutoff)]
+    else:
+        top_n_nouns = list(word_counts.keys())
+        top_n_lemmas = list(lemma_counts.keys())
 
-    return word_counts, lemma_counts
-
-
+    return top_n_nouns, top_n_lemmas
 
 def _parse_analysis_line_toks(toks):
     res = {}
@@ -57,65 +85,86 @@ def _generate_cv_template(patt, pl_type, pl_sg='s'):
     template = _SUKUN.sub('', patt)
 
     # handle sound plurals
+
     if pl_type == 'S' and pl_sg == 'p':
         if patt.endswith('At'):
-            template = re.sub('At$', '+aat', template)
+            template = _CV_AT_END.sub('+aat', template)
         elif patt.endswith('|t'):
-            template = re.sub('At$', '2+aat', template)
+            template = _CV_AT_END.sub('2+aat', template)
         elif patt.endswith(('iyn', 'uwn')):
-            template = re.sub('iyn$', '+iin', template)
-            template = re.sub('uwn$', '+uun', template)
+            template = _CV_IY_IYN_END.sub('+iin', template)
+            template = _CV_UW_UWN_END.sub('+uun', template)
         elif patt.endswith(('iy', 'uw')):
-            template = re.sub('iy$', '+ii', template)
-            template = re.sub('uw$', '+uu', template)
+            template = _CV_IY_IYN_END.sub('+iin', template)
+            template = _CV_UW_UWN_END.sub('+uun', template)
         else:
             print("What kind sound plular is this يا روح أمك?")
             print(patt)
 
-
     # consonants
-    template = re.sub(r'\d', 'C', template)
+    template = _CV_DIGIT.sub('C', template)
 
     # treat long vowel aa and glotal stop ending as a suffix
-    template = re.sub(r"A'$", '+aa2', template)
+    template = _CV_AHMZ_END.sub('+aa2', template)
 
     # treat aan as a suffix
-    template = re.sub(r"An$", "+aan", template)
+    template = _CV_AN_END.sub("+aan", template)
 
     # long vowels aa, ii, uu
-    template = re.sub(r"CuwC", "CuuC", template)
-    template = re.sub(r"CiyC", "CiiC", template)
-    template = re.sub(r"CAC", "CaaC", template)
+    template = _CV_U_MID.sub("CuuC", template)
+    template = _CV_I_MID.sub("CiiC", template)
+    template = _CV_A_MID.sub("CaaC", template)
 
     # Alif madda
-    template = re.sub(r"\|", "2aa", template)
+    template = _CV_ALIF_MDD.sub("2aa", template)
 
     # glotal stops
-    template = re.sub(r"[><&}]", "2", template)
+    template = _CV_HMZA.sub("2", template)
 
     # initial A, or hamzat wasl
-    template = re.sub(r"(^A|^{)", 'a', template)
+    template = _CV_ALIF_INIT.sub('a', template)
 
     # glides followed by long vowel aa
-    template = re.sub(r"(aw|iy)A", r'\1aa', template)
+    template = _CV_GLD_ALIF.sub(r'\1aa', template)
 
     # ta marbuta
-    template = re.sub(r"ap", "+at", template)
+    template = _CV_TAMAR.sub("+at", template)
 
     # ending vowels
-    template = re.sub(r"(aY|A$)", 'aa', template)
-    template = re.sub(r"(Ciy$)", 'Cii', template)
-    template = re.sub(r"(Cuw$)", 'Cuu', template)
+    template = _CV_A_END.sub('aa', template)
+    template = _CV_I_END.sub('Cii', template)
+    template = _CV_U_END.sub('Cuu', template)
 
+    # leftover A and Y
+    # if any(x in template for x in ['Y', 'A']):
+    #     print(template)
+    template = _CV_ALIF_MQ.sub('aa', template)
+    melodic_patt = ''
+    tamar = False
+    if pl_sg == 's':
+        if template.endswith('+at'):
+            tamar = True
+            template = template[:-3]
+        melodic_patt = _CONS_GLD.sub('', template)
+        template = _SH_VOWELS.sub('v', template)
 
-    return template
+    return template, melodic_patt, tamar
+
+def _prepare_data(uniq_lines):
+    uniq_lines['lemma'] = uniq_lines['lemma'].apply(bw2safebw)
+    X = uniq_lines[['lemma','lemma_cv', 'mel_patt', 'tamar', 'gender', 'rat', 'root', 'plural_cv',
+                                'B/S']].to_csv(f'{sys.argv[3]}_plural_top_{sys.argv[2]}.csv', index=False)
+
 def main():
     db = MorphologyDB("calima-msa-s31_0.4.2.utf8.db", 'g')
+    msa_generator = Generator(db)
 
     plurals = []
     pl_type = ''
-
-    word_counts, lemma_counts = _trim_corpus(sys.argv[1], 2)
+    nouns = []
+    num = []
+    word_counts, lemma_counts = _trim_corpus(sys.argv[1], sys.argv[2])
+    print(type(word_counts))
 
     with open(sys.argv[1], 'r') as f:
         for line in f:
@@ -123,12 +172,22 @@ def main():
                 continue
             elif 'pos:noun ' not in line:
                 continue
-
             features = _parse_analysis_line_toks(line.strip().split(' ')[1:])
-            # if features['diac'] not in word_counts:
+            if features['lex'] in lemma_counts:
+                nouns.append(features['diac'])
+                num.append(features['num'])
+            # if features['diac'] not in word_counts: #and (features['lex'] not in word_counts):
             #     continue
-            if features['num'] == 's':
+            if features['lex'] not in lemma_counts: #and (features['lex'] not in word_counts):
                 continue
+            if features['num'] in ['s', 'd']:
+                analyses = msa_generator.generate(bw2ar(features['lex']), {'pos': 'noun','gen': 
+                                                features['gen'],'num': 'p', 'cas':'n', 'stt':'i'})
+                if len(analyses) == 0:
+                    continue
+                features = analyses[0]
+                for feat in ['diac', 'lex', 'pattern', 'root', 'd3tok', 'd3seg']:
+                    features[feat] = ar2bw(features[feat])
 
             if (features['num'] == 'p') and (features['form_num'] == 'p'):
                 pl_type = 'S'
@@ -163,45 +222,49 @@ def main():
                     lex_patt = ar2bw(item['pattern'])
                     break
             #lemma -- plural -- B/S -- gender -- rat -- root -- lemma_patt -- plural_patt -- lemma_cv -- plural_cv
+            lemma_cv, mel_patt, tamar = _generate_cv_template(lex_patt, pl_type)
+            plural_cv, _, _ = _generate_cv_template(patt, pl_type, 'p')
             plurals.append([features['lex'], plural_bswrd, pl_type, features['gen'], features['rat'],
-             features['root'], lex_patt, patt, _generate_cv_template(lex_patt, pl_type), _generate_cv_template(patt, pl_type, 'p')])
+                            features['root'], lex_patt, patt, lemma_cv, mel_patt, tamar, plural_cv])
             # if patt == '>u2~at':
             #     print(plurals[-1])
         print(len(plurals))
         # print(plurals[999])
     plurals_df = pd.DataFrame(plurals, columns=['lemma', 'plural', 'B/S', 'gender', 'rat', 'root', 
-                                            'lemma_patt', 'plural_patt', 'lemma_cv', 'plural_cv'])
-    # print(plurals_df[['lemma','plural']].value_counts())
+                        'lemma_patt', 'plural_patt', 'lemma_cv', 'mel_patt', 'tamar', 'plural_cv'])
+    print(plurals_df[['lemma','plural']].value_counts())
     print("Unique SG-PL pairs:", len(plurals_df[['lemma','plural']].value_counts()))
     print("Unique SG-PL pairs:", len(plurals_df[['lemma','plural']].value_counts()))
     print("Unique SG-PL patts:", len(plurals_df[['lemma_patt','plural_patt']].value_counts()))
     print("Unique SG-PL CVs:", len(plurals_df[['lemma_cv','plural_cv']].value_counts()))
     print("Unique lines:", len(plurals_df[['lemma', 'plural', 'B/S', 'gender', 'rat', 'root', 
                                             'lemma_patt', 'plural_patt', 'lemma_cv', 'plural_cv']].value_counts()))
-    print(plurals_df[['lemma', 'plural', 'B/S', 'gender', 'rat', 'root', 
-                                            'lemma_patt', 'plural_patt', 'lemma_cv', 'plural_cv']].value_counts().to_csv("unique_lines.csv"))
+    # print(plurals_df[['lemma', 'plural', 'B/S', 'gender', 'rat', 'root', 
+    #                                         'lemma_patt', 'plural_patt', 'lemma_cv', 'plural_cv']].value_counts().to_csv("unique_lines.csv"))
 
-    plurals_df[['lemma_cv','plural_cv', 'B/S']].value_counts().to_csv("all_cv_counts.csv")
-    plurals_df[['lemma_patt','plural_patt', 'B/S']].value_counts().to_csv("all_patt_counts.csv")
-    plurals_df[['plural_cv', 'B/S']].value_counts().to_csv("plural_cv_counts.csv")
-    plurals_df[['plural_patt', 'B/S']].value_counts().to_csv("plural_patt_counts.csv")
-    plurals_df[['gender', 'rat', 'B/S']].value_counts().to_csv("gender_rat_counts.csv")
-    plurals_df[['rat', 'B/S']].value_counts().to_csv("rat_cv_counts.csv")
-    plurals_df[['gender', 'B/S']].value_counts().to_csv("gender_counts.csv")
+    plurals_df[['lemma_cv','plural_cv', 'B/S']].value_counts().to_csv(f"{sys.argv[3]}_all_cv_counts_{sys.argv[2]}.csv")
+    plurals_df[['lemma_patt','plural_patt', 'B/S']].value_counts().to_csv(f"{sys.argv[3]}_all_patt_counts_{sys.argv[2]}.csv")
+    plurals_df[['plural_cv', 'B/S']].value_counts().to_csv(f"{sys.argv[3]}_plural_cv_counts_{sys.argv[2]}.csv")
+    plurals_df[['plural_patt', 'B/S']].value_counts().to_csv(f"{sys.argv[3]}_plural_patt_counts_{sys.argv[2]}.csv")
+    plurals_df[['gender', 'rat', 'B/S']].value_counts().to_csv(f"{sys.argv[3]}_gender_rat_counts_{sys.argv[2]}.csv")
+    plurals_df[['rat', 'B/S']].value_counts().to_csv(f"{sys.argv[3]}_rat_cv_counts_{sys.argv[2]}.csv")
+    plurals_df[['gender', 'B/S']].value_counts().to_csv(f"{sys.argv[3]}_gender_counts_{sys.argv[2]}.csv")
     unique_plurals = plurals_df.drop_duplicates()
-    unique_plurals[['lemma_cv','plural_cv', 'B/S']].value_counts().to_csv("cv_type_counts.csv")
+    unique_plurals[['lemma_cv','plural_cv', 'B/S']].value_counts().to_csv(f"{sys.argv[3]}_cv_type_counts_{sys.argv[2]}.csv")
+
+    _prepare_data(unique_plurals)
+
 
 
 
     print(plurals_df[['B/S']].value_counts())
+    print(unique_plurals.to_csv(f"{sys.argv[3]}plural_type_{sys.argv[2]}.csv"))
+    print(unique_plurals[['B/S']].value_counts())
 
-
-
-
-
-
-
-
+    print(f"# of noun tokens in the top {sys.argv[2]} is: {len(nouns)} nouns")
+    print(f"# of noun types in the top {sys.argv[2]} is: {len(set(nouns))} nouns")
+    print(f"top ten nouns {sys.argv[2]} is: {Counter(nouns).most_common(10)}")
+    print(Counter(num))
 
 if __name__ == "__main__":
     main()
