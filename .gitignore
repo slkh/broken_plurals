@@ -138,13 +138,10 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 .env/
-all_cv_counts.csv
-all_patt_counts.csv
-cv_type_counts.csv
-gender_counts.csv
-gender_rat_counts.csv
-plural_cv_counts.csv
-plural_patt_counts.csv
-rat_cv_counts.csv
-unique_lines.csv
 calima-msa-s31_0.4.2.utf8.db
+*.csv
+Decision_Tree_rulesTP
+6_class_dev_plural_top_all.csv.arff
+J48_bin_rules.pdf
+nani
+3_yo_plural_dt.model
