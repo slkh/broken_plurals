@@ -1,7 +1,8 @@
 import re
 import sys
 import pandas as pd
-from collections import Counter, OrderedDict
+from math import log
+from collections import Counter
 
 from camel_tools.utils.charmap import CharMapper
 from camel_tools.morphology.generator import Generator
@@ -10,6 +11,8 @@ from camel_tools.morphology.database import MorphologyDB
 bw2ar = CharMapper.builtin_mapper('bw2ar')
 ar2bw = CharMapper.builtin_mapper('ar2bw')
 bw2safebw = CharMapper.builtin_mapper('bw2safebw')
+
+_PRNTHS = re.compile(r"[\(\)]")
 
 _REMOVE_CLTCS = re.compile(r'(\S+\+\_|\_\+\S+)')
 _REMOVE_FNL_DCRTC = re.compile(r'([iouaFKN]|AF)$')
@@ -40,7 +43,56 @@ _CV_A_END = re.compile(r"(aY|A$)")
 _CV_I_END = re.compile(r"(Ciy$)")
 _CV_U_END = re.compile(r"(Cuw$)")
 _CV_ALIF_MQ = re.compile(r"(A|Y)")
+_CV_RED_SND = re.compile(r".*(\+iin|\+aat)")
 
+def _create_baseline(test_entries):
+
+    # The baseline is adding the sound suffix according to the gender.
+    # because this is just for evaluation, no need to actually add things. 
+    # Just check if the word has the suffix
+    test_set = test_entries[['gender', 'plural_cv']].values.tolist()
+    print(len(test_set))
+    correct = 0
+    incorrect = 0
+    for instance in test_set:
+        if (instance[0] == 'f' and instance[1] == '+aat') or \
+                                            (instance[0] == 'm' and instance[1] == '+iin'):
+            correct +=1
+        else:
+            incorrect +=1
+    print("#####")
+    print("Baseline")
+    print("Correct:", correct)
+    print("Incorrect:", incorrect)
+    print("#####")
+
+def _compute_TP(rules):
+    prdctv = 0
+    unprdctv = 0
+    with open(rules+"TP", 'w') as k:
+        with open(rules, 'r') as f:
+            for line in f:
+                is_T = False
+                elements = line.strip().split(' ')
+                scope = _PRNTHS.sub('', elements[-1].strip()).split('/')
+                if len(scope) == 1:
+                    is_T = True
+                else:
+                    is_T = TP(float(scope[0]), float(scope[1]))
+                
+                if is_T:
+                    prdctv += 1
+                else:
+                    unprdctv +=1
+                k.write(f"{line.strip()} {is_T}\n")
+    return prdctv, unprdctv
+
+def TP(x,y):
+    N = x+y
+    # print("Scope of the rule", N)
+    # print("Tolerance threshold:",  N/log(N))
+    # print("Number of exceptions", y)
+    return y <  N/log(N)
 
 def _trim_corpus(file_path, cutoff):
     words = []
@@ -84,6 +136,9 @@ def _generate_cv_template(patt, pl_type, pl_sg='s'):
     # remove sukun
     template = _SUKUN.sub('', patt)
 
+    # for when the template is singular, these will have real values
+    melodic_patt = ''
+    tamar = False
     # handle sound plurals
 
     if pl_type == 'S' and pl_sg == 'p':
@@ -93,13 +148,23 @@ def _generate_cv_template(patt, pl_type, pl_sg='s'):
             template = _CV_AT_END.sub('2+aat', template)
         elif patt.endswith(('iyn', 'uwn')):
             template = _CV_IY_IYN_END.sub('+iin', template)
-            template = _CV_UW_UWN_END.sub('+uun', template)
+            template = _CV_UW_UWN_END.sub('+iin', template)
         elif patt.endswith(('iy', 'uw')):
             template = _CV_IY_IYN_END.sub('+iin', template)
-            template = _CV_UW_UWN_END.sub('+uun', template)
+            template = _CV_UW_UWN_END.sub('+iin', template)
         else:
-            print("What kind sound plular is this يا روح أمك?")
+            print("What kind sound plural is this يا روح أمك?")
             print(patt)
+
+    # to reduce sparsity among the sound plurals, the all we need really is an indicator of which 
+    # plural it is, therefore, I'll just replace teh entire template with the suffix. this can obvs be parametrized
+    if pl_type == 'S' and pl_sg == 'p':
+        template = _CV_RED_SND.sub(r"\1", template)
+        return template, melodic_patt, tamar
+
+    # handle non-templatic word stems (NTWS)
+    if ('NTWS' in patt) and (pl_sg == 's'):
+        return template, 'x', 'False'
 
     # consonants
     template = _CV_DIGIT.sub('C', template)
@@ -139,8 +204,6 @@ def _generate_cv_template(patt, pl_type, pl_sg='s'):
     # if any(x in template for x in ['Y', 'A']):
     #     print(template)
     template = _CV_ALIF_MQ.sub('aa', template)
-    melodic_patt = ''
-    tamar = False
     if pl_sg == 's':
         if template.endswith('+at'):
             tamar = True
@@ -152,10 +215,16 @@ def _generate_cv_template(patt, pl_type, pl_sg='s'):
 
 def _prepare_data(uniq_lines):
     uniq_lines['lemma'] = uniq_lines['lemma'].apply(bw2safebw)
-    X = uniq_lines[['lemma','lemma_cv', 'mel_patt', 'tamar', 'gender', 'rat', 'root', 'plural_cv',
+    uniq_lines[['lemma','lemma_cv', 'mel_patt', 'tamar', 'gender', 'rat', 'root', 'plural_cv',
                                 'B/S']].to_csv(f'{sys.argv[3]}_plural_top_{sys.argv[2]}.csv', index=False)
 
 def main():
+
+
+    if sys.argv[1] == 'TP':
+        prd, unprd = _compute_TP(sys.argv[2])
+        print(f"There are total of {prd+unprd} hypothesized rules, {prd} are productive!")
+        sys.exit(2)
     db = MorphologyDB("calima-msa-s31_0.4.2.utf8.db", 'g')
     msa_generator = Generator(db)
 
@@ -164,7 +233,7 @@ def main():
     nouns = []
     num = []
     word_counts, lemma_counts = _trim_corpus(sys.argv[1], sys.argv[2])
-    print(type(word_counts))
+    # print(type(word_counts))
 
     with open(sys.argv[1], 'r') as f:
         for line in f:
@@ -224,6 +293,7 @@ def main():
             #lemma -- plural -- B/S -- gender -- rat -- root -- lemma_patt -- plural_patt -- lemma_cv -- plural_cv
             lemma_cv, mel_patt, tamar = _generate_cv_template(lex_patt, pl_type)
             plural_cv, _, _ = _generate_cv_template(patt, pl_type, 'p')
+
             plurals.append([features['lex'], plural_bswrd, pl_type, features['gen'], features['rat'],
                             features['root'], lex_patt, patt, lemma_cv, mel_patt, tamar, plural_cv])
             # if patt == '>u2~at':
@@ -232,15 +302,13 @@ def main():
         # print(plurals[999])
     plurals_df = pd.DataFrame(plurals, columns=['lemma', 'plural', 'B/S', 'gender', 'rat', 'root', 
                         'lemma_patt', 'plural_patt', 'lemma_cv', 'mel_patt', 'tamar', 'plural_cv'])
-    print(plurals_df[['lemma','plural']].value_counts())
+    # print(plurals_df[['lemma','plural']].value_counts())
     print("Unique SG-PL pairs:", len(plurals_df[['lemma','plural']].value_counts()))
     print("Unique SG-PL pairs:", len(plurals_df[['lemma','plural']].value_counts()))
     print("Unique SG-PL patts:", len(plurals_df[['lemma_patt','plural_patt']].value_counts()))
     print("Unique SG-PL CVs:", len(plurals_df[['lemma_cv','plural_cv']].value_counts()))
     print("Unique lines:", len(plurals_df[['lemma', 'plural', 'B/S', 'gender', 'rat', 'root', 
                                             'lemma_patt', 'plural_patt', 'lemma_cv', 'plural_cv']].value_counts()))
-    # print(plurals_df[['lemma', 'plural', 'B/S', 'gender', 'rat', 'root', 
-    #                                         'lemma_patt', 'plural_patt', 'lemma_cv', 'plural_cv']].value_counts().to_csv("unique_lines.csv"))
 
     plurals_df[['lemma_cv','plural_cv', 'B/S']].value_counts().to_csv(f"{sys.argv[3]}_all_cv_counts_{sys.argv[2]}.csv")
     plurals_df[['lemma_patt','plural_patt', 'B/S']].value_counts().to_csv(f"{sys.argv[3]}_all_patt_counts_{sys.argv[2]}.csv")
@@ -254,12 +322,14 @@ def main():
 
     _prepare_data(unique_plurals)
 
-
-
+    if sys.argv[3] in ['test', 'dev']:
+        _create_baseline(unique_plurals)
 
     print(plurals_df[['B/S']].value_counts())
-    print(unique_plurals.to_csv(f"{sys.argv[3]}plural_type_{sys.argv[2]}.csv"))
+    with open(f"{sys.argv[3]}_labels.csv", 'w') as f:
+        f.write('\n'.join(unique_plurals['plural_cv'].unique()))
     print(unique_plurals[['B/S']].value_counts())
+
 
     print(f"# of noun tokens in the top {sys.argv[2]} is: {len(nouns)} nouns")
     print(f"# of noun types in the top {sys.argv[2]} is: {len(set(nouns))} nouns")
